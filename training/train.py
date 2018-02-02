@@ -12,6 +12,8 @@ import os
 import warnings
 import sys
 import time
+import pdb
+import argparse
 
 import homogeneous_data
 
@@ -25,23 +27,25 @@ from vocab import load_dictionary
 
 # main trainer
 def trainer(X, 
-            dim_word=620, # word vector dimensionality
-            dim=2400, # the number of GRU units
+            dim_word=300, # word vector dimensionality
+            dim=300, # the number of GRU units
             encoder='gru',
             decoder='gru',
-            max_epochs=5,
+            max_epochs=4,
             dispFreq=1,
-            decay_c=0.,
-            grad_clip=5.,
-            n_words=20000,
+            decay_c=0.1,
+            grad_clip=8.0,
+            n_words=64526,
             maxlen_w=30,
             optimizer='adam',
-            batch_size = 64,
-            saveto='/u/rkiros/research/semhash/models/toy.npz',
-            dictionary='/ais/gobi3/u/rkiros/bookgen/book_dictionary_large.pkl',
+            batch_size=32,
+            saveto='/home/shunan/Code/skip-thoughts/experiments/imdb/test_model/test_uni.npz',
+            dictionary='/home/shunan/Code/skip-thoughts/experiments/imdb/word_dicts.pkl',
             saveFreq=1000,
+            dataset='imdb',
             reload_=False):
 
+    theano.config.allow_gc = True
     # Model options
     model_options = {}
     model_options['dim_word'] = dim_word
@@ -59,6 +63,7 @@ def trainer(X,
     model_options['saveto'] = saveto
     model_options['dictionary'] = dictionary
     model_options['saveFreq'] = saveFreq
+    model_options['dataset'] = dataset
     model_options['reload_'] = reload_
 
     print model_options
@@ -67,7 +72,7 @@ def trainer(X,
     if reload_ and os.path.exists(saveto):
         print 'reloading...' + saveto
         with open('%s.pkl'%saveto, 'rb') as f:
-            models_options = pkl.load(f)
+            model_options = pkl.load(f)
 
     # load dictionary
     print 'Loading dictionary...'
@@ -138,7 +143,11 @@ def trainer(X,
     print 'Optimization'
 
     # Each sentence in the minibatch have same length (for encoder)
-    trainX = homogeneous_data.grouper(X)
+    # trainX = homogeneous_data.grouper(X)
+    if dataset == 'amazon':
+        trainX = homogeneous_data.amazon_grouper()
+    elif dataset == 'imdb':
+        trainX = homogeneous_data.imdb_grouper()
     train_iter = homogeneous_data.HomogeneousData(trainX, batch_size=batch_size, maxlen=maxlen_w)
 
     uidx = 0
@@ -154,7 +163,7 @@ def trainer(X,
 
             x, x_mask, y, y_mask, z, z_mask = homogeneous_data.prepare_data(x, y, z, worddict, maxlen=maxlen_w, n_words=n_words)
 
-            if x == None:
+            if x is None:
                 print 'Minibatch with zero sample under length ', maxlen_w
                 uidx -= 1
                 continue
@@ -181,7 +190,31 @@ def trainer(X,
 
         print 'Seen %d samples'%n_samples
 
+    # Saving the model after all the epochs.
+    print 'Saving...'
+
+    params = unzip(tparams)
+    numpy.savez(saveto, history_errs=[], **params)
+    pkl.dump(model_options, open('%s.pkl' % saveto, 'wb'))
+    print 'Done'
+
 if __name__ == '__main__':
-    pass
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dim', type=int, default=300)
+    parser.add_argument('--decay-c', type=float, default=0.)
+    parser.add_argument('--grad-clip', type=float, default=5.)
+    parser.add_argument('--n-words', type=int)
+    parser.add_argument('--maxlen-w', type=int, default=30)
+    parser.add_argument('--dataset', type=str, default='amazon')
+    parser.add_argument('--dictionary', type=str)
+    parser.add_argument('--reload', action='store_true')
+    parser.add_argument('--max-epochs', type=int, default=5)
+    parser.add_argument('--encoder', type=str, default='gru')
+    parser.add_argument('--saveto', type=str)
 
+    args = parser.parse_args()
+
+    trainer([], dim=args.dim, decay_c=args.decay_c, grad_clip=args.grad_clip, n_words=args.n_words,
+            maxlen_w=args.maxlen_w, dataset=args.dataset, dictionary=args.dictionary, reload_=args.reload,
+            max_epochs=args.max_epochs, encoder=args.encoder, saveto=args.saveto)

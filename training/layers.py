@@ -9,7 +9,7 @@ To add a new layer:
 """
 import theano
 import theano.tensor as tensor
-
+import pdb
 import numpy
 
 from utils import _p, ortho_weight, norm_weight, tanh, linear
@@ -17,11 +17,12 @@ from utils import _p, ortho_weight, norm_weight, tanh, linear
 # layers: 'name': ('parameter initializer', 'feedforward')
 layers = {'ff': ('param_init_fflayer', 'fflayer'),
           'gru': ('param_init_gru', 'gru_layer'),
+          'bidirectional': ('param_init_bidirectional', 'bidirectional_layer')
           }
 
 def get_layer(name):
     """
-    Return param init and feedforward functions for the given layer name
+    Return param init and feedforward functions for the given layer nameRU
     """
     fns = layers[name]
     return (eval(fns[0]), eval(fns[1]))
@@ -45,6 +46,28 @@ def fflayer(tparams, state_below, options, prefix='rconv', activ='lambda x: tens
     Feedforward pass
     """
     return eval(activ)(tensor.dot(state_below, tparams[_p(prefix,'W')])+tparams[_p(prefix,'b')])
+
+# Bi-directional layer.
+def param_init_bidirectional(options, params, layer_type='gru', prefix='bidi_gru', nin=None, dim=None):
+    '''
+    Bidirectional GRU layer init.
+    '''
+    params = get_layer(layer_type)[0](options, params, prefix=prefix+'_forward', nin=nin, dim=dim/2)
+    params = get_layer(layer_type)[0](options, params, prefix=prefix+'_backward', nin=nin, dim=dim/2)
+    return params
+
+def bidirectional_layer(tparams, state_below, init_state, options, layer_type='gru', prefix='bidi_gru',
+                        mask=None, **kwargs):
+    '''
+    Bidirectional GRU layer.
+    '''
+
+    proj = get_layer(layer_type)[1](tparams, state_below, init_state, options, prefix=prefix+'_forward',
+                                    mask=mask, go_backwards=False, **kwargs)
+    proj_r = get_layer(layer_type)[1](tparams, state_below, init_state, options, prefix=prefix+'_backward',
+                                      mask=mask, go_backwards=True, **kwargs)
+
+    return [tensor.concatenate([proj[0], proj_r[0][::-1]], axis=proj[0].ndim-1)]
 
 # GRU layer
 def param_init_gru(options, params, prefix='gru', nin=None, dim=None):
@@ -71,7 +94,7 @@ def param_init_gru(options, params, prefix='gru', nin=None, dim=None):
 
     return params
 
-def gru_layer(tparams, state_below, init_state, options, prefix='gru', mask=None, **kwargs):
+def gru_layer(tparams, state_below, init_state, options, prefix='gru', mask=None, go_backwards=False, **kwargs):
     """
     Feedforward pass through GRU
     """
@@ -81,7 +104,7 @@ def gru_layer(tparams, state_below, init_state, options, prefix='gru', mask=None
     else:
         n_samples = 1
 
-    dim = tparams[_p(prefix,'Ux')].shape[1]
+    dim = tparams[_p(prefix, 'Ux')].shape[1]
 
     if init_state == None:
         init_state = tensor.alloc(0., n_samples, dim)
@@ -96,11 +119,12 @@ def gru_layer(tparams, state_below, init_state, options, prefix='gru', mask=None
 
     state_below_ = tensor.dot(state_below, tparams[_p(prefix, 'W')]) + tparams[_p(prefix, 'b')]
     state_belowx = tensor.dot(state_below, tparams[_p(prefix, 'Wx')]) + tparams[_p(prefix, 'bx')]
-    U = tparams[_p(prefix, 'U')]
-    Ux = tparams[_p(prefix, 'Ux')]
 
-    def _step_slice(m_, x_, xx_, h_, U, Ux):
-        preact = tensor.dot(h_, U)
+    # U = tparams[_p(prefix, 'U')]
+    # Ux = tparams[_p(prefix, 'Ux')]
+
+    def _step_slice(m_, x_, xx_, h_, U, Ux):  # i.e. mask, state_below_, state_belowx, h, U, Ux
+        preact = tensor.dot(h_, U)  # compute the hidden to hidden weight vector
         preact += x_
 
         r = tensor.nnet.sigmoid(_slice(preact, 0, dim))
@@ -113,7 +137,7 @@ def gru_layer(tparams, state_below, init_state, options, prefix='gru', mask=None
         h = tensor.tanh(preactx)
 
         h = u * h_ + (1. - u) * h
-        h = m_[:,None] * h + (1. - m_)[:,None] * h_
+        h = m_[:, None] * h + (1. - m_)[:, None] * h_
 
         return h
 
@@ -122,14 +146,13 @@ def gru_layer(tparams, state_below, init_state, options, prefix='gru', mask=None
 
     rval, updates = theano.scan(_step,
                                 sequences=seqs,
-                                outputs_info = [init_state],
-                                non_sequences = [tparams[_p(prefix, 'U')],
-                                                 tparams[_p(prefix, 'Ux')]],
+                                outputs_info=[init_state],
+                                non_sequences=[tparams[_p(prefix, 'U')],
+                                               tparams[_p(prefix, 'Ux')]],
                                 name=_p(prefix, '_layers'),
                                 n_steps=nsteps,
+                                go_backwards=go_backwards,
                                 profile=False,
                                 strict=True)
     rval = [rval]
     return rval
-
-

@@ -9,11 +9,14 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import cPickle as pkl
 import numpy
 import nltk
+import pdb
+import time
 
 from collections import OrderedDict, defaultdict
 from nltk.tokenize import word_tokenize
 from scipy.linalg import norm
 from gensim.models import Word2Vec as word2vec
+# from gensim.models import KeyedVectors
 from sklearn.linear_model import LinearRegression
 
 from utils import load_params, init_tparams
@@ -22,12 +25,13 @@ from model import init_params, build_encoder, build_encoder_w2v
 #-----------------------------------------------------------------------------#
 # Specify model and dictionary locations here
 #-----------------------------------------------------------------------------#
-path_to_model = '/u/rkiros/research/semhash/models/toy.npz'
-path_to_dictionary = '/ais/gobi3/u/rkiros/bookgen/book_dictionary_large.pkl'
-path_to_word2vec = '/ais/gobi3/u/rkiros/word2vec/GoogleNews-vectors-negative300.bin'
+path_to_word2vec = '/home/shunan/Code/Data/word2vec/GoogleNews-vectors-negative300.bin'
 #-----------------------------------------------------------------------------#
 
-def load_model(embed_map=None):
+def load_model(
+        path_to_model='/home/shunan/Code/skip-thoughts/experiments/amazon/amazon_model_bi.npz',
+        path_to_dictionary='/home/shunan/Code/skip-thoughts/experiments/amazon/word_dicts.pkl',
+        embed_map=None):
     """
     Load all model components + apply vocab expansion
     """
@@ -65,9 +69,9 @@ def load_model(embed_map=None):
     f_w2v = theano.function([embedding, x_mask], ctxw2v, name='f_w2v')
 
     # Load word2vec, if applicable
-    if embed_map == None:
-        print 'Loading word2vec embeddings...'
-        embed_map = load_googlenews_vectors(path_to_word2vec)
+    # if embed_map == None:
+    #     print 'Loading word2vec embeddings...'
+    #     embed_map = load_googlenews_vectors(path_to_word2vec)
 
     # Lookup table using vocab expansion trick
     print 'Creating word lookup tables...'
@@ -80,9 +84,10 @@ def load_model(embed_map=None):
     model['table'] = table
     model['f_w2v'] = f_w2v
 
+    # model is just a dict.
     return model
 
-def encode(model, X, use_norm=True, verbose=True, batch_size=128, use_eos=False):
+def encode(model, X, use_norm=True, verbose=False, batch_size=128, use_eos=False):
     """
     Encode sentences in the list X. Each entry will return a vector
     """
@@ -102,6 +107,7 @@ def encode(model, X, use_norm=True, verbose=True, batch_size=128, use_eos=False)
         ds[len(s)].append(i)
 
     # Get features. This encodes by length, in order to avoid wasting computation
+    # t1 = time.time()
     for k in ds.keys():
         if verbose:
             print k
@@ -131,7 +137,8 @@ def encode(model, X, use_norm=True, verbose=True, batch_size=128, use_eos=False)
                     ff[j] /= norm(ff[j])
             for ind, c in enumerate(caps):
                 features[c] = ff[ind]
-    
+
+    # total_time = (time.time() - t1) * 1000
     return features
 
 def preprocess(text):
@@ -149,20 +156,21 @@ def preprocess(text):
         X.append(result)
     return X
 
-def load_googlenews_vectors():
-    """
-    load the word2vec GoogleNews vectors
-    """
-    embed_map = word2vec.load_word2vec_format(path_to_word2vec, binary=True)
-    return embed_map
+# def load_googlenews_vectors():
+#     """
+#     load the word2vec GoogleNews vectors
+#     """
+#     embed_map = KeyedVectors.load_word2vec_format(path_to_word2vec, binary=True)
+#     return embed_map
 
 def lookup_table(options, embed_map, worddict, word_idict, f_emb, use_norm=False):
     """
     Create a lookup table from linear mapping of word2vec into RNN word space
     """
     wordvecs = get_embeddings(options, word_idict, f_emb)
-    clf = train_regressor(options, embed_map, wordvecs, worddict)
-    table = apply_regressor(clf, embed_map, use_norm=use_norm)
+    # clf = train_regressor(options, embed_map, wordvecs, worddict)
+    # table = apply_regressor(clf, embed_map, use_norm=use_norm)
+    table = OrderedDict()
 
     for i in range(options['n_words']):
         w = word_idict[i]

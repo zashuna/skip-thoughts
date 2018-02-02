@@ -4,6 +4,7 @@ Model specification
 import theano
 import theano.tensor as tensor
 import numpy
+import pdb
 
 from collections import OrderedDict
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -18,7 +19,14 @@ def init_params(options):
     params = OrderedDict()
 
     # Word embedding
-    params['Wemb'] = norm_weight(options['n_words'], options['dim_word'])
+    # params['Wemb'] = norm_weight(options['n_words'], options['dim_word'])
+
+    # We load the embeddings that we saved earlier.
+    if options['dataset'] == 'amazon':
+        embeddings = numpy.load('/home/shunan/Code/skip-thoughts/experiments/amazon/word2vec_embeds.npy')
+    elif options['dataset'] == 'imdb':
+        embeddings = numpy.load('/home/shunan/Code/skip-thoughts/experiments/imdb/skip_thought_word2vec_embeds.npy')
+    params['Wemb'] = embeddings.astype('float32')
 
     # Encoder
     params = get_layer(options['encoder'])[0](options, params, prefix='encoder',

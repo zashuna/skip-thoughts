@@ -1,5 +1,13 @@
 import numpy
 import copy
+from scipy.io import loadmat
+from nltk.tokenize import sent_tokenize
+import nltk
+from nltk.tokenize import TweetTokenizer
+import os
+import cPickle
+
+DATA_DIR = '/home/shunan/Code/Data'
 
 class HomogeneousData():
 
@@ -151,4 +159,104 @@ def grouper(text):
     X = (source, forward, backward)
     return X
 
+def preprocess_sentence_imdb(sentence, word_set):
 
+    tokens = nltk.word_tokenize(sentence)
+    s = []
+    for word in tokens:
+        if word.lower() in word_set:
+            s.append(word.lower())
+
+    return ' '.join(s)
+
+def preprocess_sentence_amazon(sentence, word_set, tokenizer):
+
+    tokens = nltk.word_tokenize(' '.join(tokenizer.tokenize(sentence.strip().lower())))
+    s = []
+    for word in tokens:
+        if word.lower() in word_set:
+            s.append(word.lower())
+
+    return ' '.join(s)
+
+def imdb_grouper():
+    '''
+    Group the imdb data, which is not entirely sequential.
+    '''
+
+    if True:
+        f = open('/home/shunan/Code/skip-thoughts/experiments/imdb/trainX.pkl', 'r')
+        X = cPickle.load(f)
+        f.close()
+        return X
+
+    # Get the word2vec dict.
+    word_set = set()
+    word2vec_dict_file = open(os.path.join(DATA_DIR, 'word2vec/dict.txt'), 'r')
+    for line in word2vec_dict_file:
+        word_set.add(line.strip())
+
+    imdb_data = loadmat(os.path.join(DATA_DIR, 'imdb_sentiment/imdb_sentiment.mat'))
+    train_data = imdb_data['train_data']
+    source = []
+    forward = []
+    backward = []
+
+    for i in range(len(train_data)):
+        line = train_data[i][0][0]
+        sentences = sent_tokenize(line)
+        if len(sentences) < 3:
+            continue
+
+        j = 1
+        while j < len(sentences) - 1:
+            backward.append(preprocess_sentence_imdb(sentences[j - 1], word_set))
+            source.append(preprocess_sentence_imdb(sentences[j], word_set))
+            forward.append(preprocess_sentence_imdb(sentences[j + 1], word_set))
+
+            j += 1
+
+    return (source, forward, backward)
+
+def amazon_grouper():
+    '''
+    Similar to the above, but for the amazon data.
+    '''
+
+    if True:
+        f = open('/home/shunan/Code/skip-thoughts/experiments/amazon/trainX.pkl', 'r')
+        X = cPickle.load(f)
+        f.close()
+        return X
+
+    with open(os.path.join(DATA_DIR, 'amazon_food/train_data.pkl'), 'r') as f:
+        train_data = cPickle.load(f)
+        train_data = train_data[0]
+
+    # Get the word2vec dict.
+    word_set = set()
+    word2vec_dict_file = open(os.path.join(DATA_DIR, 'word2vec/dict.txt'), 'r')
+    for line in word2vec_dict_file:
+        word_set.add(line.strip())
+
+    source = []
+    forward = []
+    backward = []
+    skipped = 0
+    tokenizer = TweetTokenizer()
+    for line in train_data:
+        sentences = sent_tokenize(line.strip())
+        if len(sentences) < 3:
+            skipped += 1
+            continue
+
+        j = 1
+        while j < len(sentences) - 1:
+            backward.append(preprocess_sentence_amazon(sentences[j - 1], word_set, tokenizer))
+            source.append(preprocess_sentence_amazon(sentences[j], word_set, tokenizer))
+            forward.append(preprocess_sentence_amazon(sentences[j + 1], word_set, tokenizer))
+
+            j += 1
+
+    print('Number of documents skipped: {}/{}'.format(skipped, len(train_data)))
+    return (source, forward, backward)
